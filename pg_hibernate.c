@@ -751,7 +751,8 @@ SaveBuffers(void)
 	int						num_buffers;
 	int						log_level		= DEBUG3;
 	SavedBuffer			   *saved_buffers;
-	volatile BufferDesc	   *bufHdr;			// XXX: Do we really need volatile here?
+	BufferDesc			   *bufHdr;
+	uint32				    bufstate;
 	FILE				   *file			= NULL;
 	int						database_counter= 0;
 	Oid						prev_database	= InvalidOid;
@@ -759,7 +760,7 @@ SaveBuffers(void)
 	ForkNumber				prev_forknum	= InvalidForkNumber;
 	BlockNumber				prev_blocknum	= InvalidBlockNumber;
 	BlockNumber				range_counter	= 0;
-	const char			   *savefile_path;
+	const char			   *savefile_path = NULL;
 
 	/*
 	 * XXX: If the memory request fails, ask for a smaller memory chunk, and use
@@ -777,13 +778,14 @@ SaveBuffers(void)
 		LWLockAcquire(BufMappingPartitionLockByIndex(i), LW_SHARED);
 
 	/* Scan and save a list of valid buffers. */
-	for (num_buffers = 0, i = 0, bufHdr = BufferDescriptors; i < NBuffers; ++i, ++bufHdr)
+	for (num_buffers = 0, i = 0; i < NBuffers; ++i)
 	{
+		bufHdr = &BufferDescriptors[i].bufferdesc;
 		/* Lock each buffer header before inspecting. */
-		LockBufHdr(bufHdr);
+		bufstate = LockBufHdr(bufHdr);
 
 		/* Skip invalid buffers */
-		if ((bufHdr->flags & BM_VALID) && (bufHdr->flags & BM_TAG_VALID))
+		if ((bufstate & BM_VALID) && (bufstate & BM_TAG_VALID))
 		{
 			saved_buffers[num_buffers].database	= bufHdr->tag.rnode.dbNode;
 			saved_buffers[num_buffers].filenode	= bufHdr->tag.rnode.relNode;
@@ -793,7 +795,7 @@ SaveBuffers(void)
 			++num_buffers;
 		}
 
-		UnlockBufHdr(bufHdr);
+		UnlockBufHdr(bufHdr, bufstate);
 	}
 
 	/* Unlock the buffer partitions in reverse order, to avoid a deadlock. */
@@ -930,6 +932,10 @@ SaveBuffers(void)
 				&& tmp->blocknum	== (prev_blocknum + range_counter + 1))
 			{
 				++range_counter;
+			}
+			else
+			{
+				break;
 			}
 		}
 

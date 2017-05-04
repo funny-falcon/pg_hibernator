@@ -917,6 +917,10 @@ SaveBuffers(void)
 			{
 				++range_counter;
 			}
+			else
+			{
+				break;
+			}
 		}
 
 		if (range_counter != 0)
